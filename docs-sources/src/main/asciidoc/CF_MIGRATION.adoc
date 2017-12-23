@@ -11,7 +11,7 @@ This tutorial covers refactoring applications to comply with, and take advantage
 
 We will use a simple 3-tier application as an example:
 
-image::{cf-migration-root-docs}/use_case_logical.png[caption="Use Case - Logical View", title="Sample 3-tier application"]
+image::{cf-migration-root-docs}/use_case_logical.png[title="Use Case - Logical View"]
 
 At the end of this tutorial, it will be possible to instantly create a Concourse pipeline for each app and run successfully through a full lifecycle, from source code commit to production deployment, following the lifecycle stages for testing and deployment recommended by Spring Cloud Pipelines. The app code bases will be improved with organized test coverage, a contract-based API, and a versioned database schema, enabling Spring Cloud Pipelines to carry out stubbed testing and to ensure backward compatibility for API and database schema changes.
 
@@ -24,7 +24,7 @@ The apps are built using Maven and pushed manually to Cloud Foundry. They levera
 
 The source code for the two Spring Boot apps is stored on GitHub, as is the backing repo for Config Server.
 
-image::{cf-migration-root-docs}/use_case_implementation.png[caption="Use Case - Logical View", title="Sample 3-tier application"]
+image::{cf-migration-root-docs}/use_case_implementation.png[title="Use Case - Implementation"]
 
 === Sample application - end state
 
