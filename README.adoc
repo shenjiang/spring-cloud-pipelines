@@ -7,6 +7,7 @@ image::https://circleci.com/gh/spring-cloud/spring-cloud-pipelines.svg?style=svg
 :concourse-root-docs: https://raw.githubusercontent.com/spring-cloud/spring-cloud-pipelines/{branch}/docs-sources/src/main/asciidoc/images/concourse
 :intro-root-docs: https://raw.githubusercontent.com/spring-cloud/spring-cloud-pipelines/{branch}/docs-sources/src/main/asciidoc/images/intro
 :demo-root-docs: https://raw.githubusercontent.com/spring-cloud/spring-cloud-pipelines/{branch}/docs-sources/src/main/asciidoc/images/demo
+:cf-migration-root-docs: https://raw.githubusercontent.com/spring-cloud/spring-cloud-pipelines/{branch}/docs-sources/src/main/asciidoc/images/cf-migration
 
 = Spring Cloud Pipelines
 
@@ -3719,11 +3720,68 @@ threshold.
 // remove::end[K8S]
 
 // remove::start[CF]
-== Step by step Cloud Foundry migration
+== Step-by-step Cloud Foundry migration
 
+=== Preview
 https://docs.google.com/presentation/d/e/2PACX-1vSsEHn8cJfz8oWIwwUhdULt7nZzz3bBLK7OqM8UInkZ0LbQBCpPdhMoxsYGPe_90h9OvCu7dFlAimMJ/pub?start=false&loop=false&delayms=3000[Click here] to
 check out the slides by https://twitter.com/ciberkleid[Cora Iberkleid] where she
 migrates a setup of applications to be compliant with Spring Cloud Pipelines.
+
+=== Introduction
+
+This tutorial covers refactoring applications to comply with, and take advantage of, Spring Cloud Pipelines.
+
+We will use a simple 3-tier application as an example:
+
+image::{cf-migration-root-docs}/use_case_logical.png[caption="Use Case - Logical View", title="Sample 3-tier application"]
+
+At the end of this tutorial, it will be possible to instantly create a Concourse pipeline for each app and run successfully through a full lifecycle, from source code commit to production deployment, following the lifecycle stages for testing and deployment recommended by Spring Cloud Pipelines. The app code bases will be improved with organized test coverage, a contract-based API, and a versioned database schema, enabling Spring Cloud Pipelines to carry out stubbed testing and to ensure backward compatibility for API and database schema changes.
+
+=== Sample application - initial state
+
+
+The sample application is implemented using Spring Boot apps for the UI and service tiers, and MySQL for the database.
+
+The apps are built using Maven and pushed manually to Cloud Foundry. They leverage the three Pivotal Spring Cloud Services: Config Server, Service Discovery, and Circuit Breaker Dashboard. Rabbit is used to propagate Config Server refresh triggers.
+
+The source code for the two Spring Boot apps is stored on GitHub, as is the backing repo for Config Server.
+
+image::{cf-migration-root-docs}/use_case_implementation.png[caption="Use Case - Logical View", title="Sample 3-tier application"]
+
+=== Sample application - end state
+
+Through this tutorial, we will be adding Concourse and JFrog Bintray to manage the application lifecycle.
+
+We will also be refactoring the application to comply with Spring Cloud Pipelines requirements and recommendations, including adding/organizing tests and introducing database versioning using Flyway and API contracts using Spring Cloud Contract.
+
+=== Tutorial - toolset
+
+* *GitHub* - sample app source code and config repositories,  a sample stubrunner app repository, and the Spring Cloud Pipelines code base
+- https://github.com/ciberkleid/greeting-ui[greeting-ui]
+- https://github.com/ciberkleid/fortune-service[fortune-service]
+- https://github.com/ciberkleid/app-config[app-config]
+- https://github.com/spring-cloud-samples/cloudfoundry-stub-runner-boot[cloudfoundry-stub-runner-boot]
+- https://github.com/spring-cloud/spring-cloud-pipelines[spring-cloud-pipelines]
+* *Pivotal Web Services* - public hosted Cloud Foundry offering http://run.pivotal.io[free trial accounts] and including MySQL, Rabbit, and Pivotal Spring Cloud Services in the Marketplace
+* *Concourse*
+* *JFrog Bintray* - public hosted Maven repository offering free https://bintray.com/signup/oss[OSS accounts]
+* *Client Tools* - on your local machine, you will need an IDE as well as the mvn, git, cf, and fly (Concourse) CLIs
+
+=== Tutorial - overview
+
+The migration steps are broken down into three stages:
+
+. Scaffolding::
+- Minimal refactoring to comply with basic Spring Cloud Pipelines requirements.
+- At the end of this stage, each app will have a corresponding pipeline on Concourse. The pipelines will successfully build the apps, store the artifacts in Bintray, and deploy the apps to Test, Stage, and Prod spaces in Cloud Foundry.
+. Tests::
+- Add/organize tests to comply with Spring Cloud Pipelines recommendations. Incorporate flyway for database schema versioning and initial data loading.
+- At the end of this stage, the pipelines will trigger unit and integration tests during the Build stage, smoke tests in the Test environment, and end-to-end tests in the Stage environment. The pipelines will also ensure backward compatibility for the database, such that you can safely roll back the backend service app, even after the database schema has been updated.
+. Contracts::
+- Incorporate Spring Cloud Contract to define the API between the UI and service apps and auto-generate tests and stubs.
+- At the end of this stage, the pipelines will catch breaking API changes during the Build stage and ensure backward compatibility for the API, such that you can safely roll back the backend service (producer) app, even after an API change.
+
+=== Tutorial - step-by-step
 
 // remove::end[CF]
 
