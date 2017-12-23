@@ -30,7 +30,7 @@ image::{cf-migration-root-docs}/use_case_implementation.png[caption="Use Case - 
 
 Through this tutorial, we will be adding Concourse and JFrog Bintray to manage the application lifecycle.
 
-We will also be refactoring the application to comply with Spring Cloud Pipelines requirements and recommendations, thereby adding and organizing tests, and introducing database versioning using Flyway and contract-based API testing using Spring Cloud Contract.
+We will also be refactoring the application to comply with Spring Cloud Pipelines requirements and recommendations, including adding/organizing tests and introducing database versioning using Flyway and API contracts using Spring Cloud Contract.
 
 === Tutorial - toolset
 
@@ -49,15 +49,15 @@ We will also be refactoring the application to comply with Spring Cloud Pipeline
 
 The migration steps are broken down into three stages:
 
-Scaffolding::
+. Scaffolding::
 - Minimal refactoring to comply with basic Spring Cloud Pipelines requirements.
 - At the end of this stage, each app will have a corresponding pipeline on Concourse. The pipelines will successfully build the apps, store the artifacts in Bintray, and deploy the apps to Test, Stage, and Prod spaces in Cloud Foundry.
-Tests::
-- Add and/or organize tests to comply with Spring Cloud Pipelines recommendations. Incorporate flyway for database schema versioning and initial data loading.
+. Tests::
+- Add/organize tests to comply with Spring Cloud Pipelines recommendations. Incorporate flyway for database schema versioning and initial data loading.
 - At the end of this stage, the pipelines will trigger unit and integration tests during the Build stage, smoke tests in the Test environment, and end-to-end tests in the Stage environment. The pipelines will also ensure backward compatibility for the database, such that you can safely roll back the backend service app, even after the database schema has been updated.
-Contracts::
+. Contracts::
 - Incorporate Spring Cloud Contract to define the API between the UI and service apps and auto-generate tests and stubs.
-- At the end of this stage, the pipelines will catch breaking API changes during the Build stage and ensure backward compatibility for the API, such that you can safely roll back backend service (producer) app, even after an API change.
+- At the end of this stage, the pipelines will catch breaking API changes during the Build stage and ensure backward compatibility for the API, such that you can safely roll back the backend service (producer) app, even after an API change.
 
 === Tutorial - step-by-step
 
