@@ -3772,7 +3772,7 @@ The migration steps are broken down into three stages:
 
 . *Scaffolding*
 - Minimal refactoring to comply with basic Spring Cloud Pipelines requirements.
-- At the end of this stage, each app will have a corresponding pipeline on Concourse. The pipelines will successfully build the apps, store the artifacts in Bintray, and deploy the apps to Test, Stage, and Prod spaces in Cloud Foundry.
+- At the end of this stage, each app will have a corresponding pipeline on Concourse. The pipelines will successfully build the apps, store the artifacts in Bintray, tag the GitHub repositories, and deploy the apps to Test, Stage, and Prod spaces in Cloud Foundry.
 . *Tests*
 - Add/organize tests to comply with Spring Cloud Pipelines recommendations. Incorporate flyway for database schema versioning and initial data loading.
 - At the end of this stage, the pipelines will trigger unit and integration tests during the Build stage, smoke tests in the Test environment, and end-to-end tests in the Stage environment. The pipelines will also ensure backward compatibility for the database, such that you can safely roll back the backend service app, even after the database schema has been updated.
@@ -3947,7 +3947,7 @@ fly -t myTarget set-pipeline -p fortune-service -c "${SCP_HOME}/spring-cloud-pip
 
 Log into the Concourse UI and unpause the pipelines. Start each. You should see that the build jobs all succeed.
 
-image::{cf-migration-root-docs}/build_success.png[title="Build Success"]
+image::{cf-migration-root-docs}/concourse_build_success.png[title="Build Success"]
 
 In addition, you will see a new dev/<version_number> tag in each GitHub repo, as well as the app jars uploaded into Bintray.
 
@@ -4162,10 +4162,29 @@ paas-prod-space: scp-prod
 
 ===== 1.14 Update Concourse pipeline with updated credentials files
 
-Set the Concourse pipelines again, as we did previously, with the newly updates values in the credentials files. The test, stage, and prod jobs will all now succeed.
+Set the Concourse pipelines again, as we did previously, to update them with the values added to the credentials files. The test, stage, and prod jobs will all now succeed.
 
-BLAH BLAH - talk about artifactory upload etc
+image::{cf-migration-root-docs}/concourse_test_stage_prod_success.png[title="Test, Stage, & Prod Success"]
 
+On Cloud Foundry, you will now see the apps deployed in the test, stage, and prod spaces. The image below shows the deploymnet of `fortune-service` to its isolated and dedicated test space, with the 5 services declared in its manifest files (`sc-pipelines.yml` for provisioning, and `manifest.yml` for binding). It also shows the deployment of the same app to the shared prod space, including the stopped instance of the previous version. If a rollback were deemed necessary, the `prod-rollback` job in the pipeline could be triggered to remove the currently running version, remove the `prod/<version_number>` tag from GitHub, and re-start the former (*"venerable"*) version.
+
+image::{cf-migration-root-docs}/cf_test_and_prod_deployed.png[title="Cloud Foundry Test and Prod Deployment"]
+
+===== Stage 1 Recap
+
+What have we accomplished?
+
+* By adding the basic scaffolding needed to enable Spring Cloud Pipelines to manage the lifecycle of `greeting-ui` and `fortune-service` from source code commit to production deploy, we have made it possible for the app dev teams to instantly and easily create pipelines for each app using a common, standardized template
+* We can count on the pipelines to:
+- automatically provision services in test spaces, and optionally in stage as well
+- dynamically clean up the test spaces between pipeline executions
+- upload the app artifacts to the maven repo (Bintray)
+- tag the GitHub repositories with `dev/<version_number>` and `prod/<version_number>`
+* After each successful pipeline run, we are in a position to roll back to the last deployed version using the `prod-rollback` job, if necessary
+
+Next steps:
+
+These accomplishments are extremely valuable, but in order to derive confidence and reliability from the pipelines, we need to incorporate testing. We do this in Stage 2 of the app migration.
 
 ==== Stage 2: Tests
 
