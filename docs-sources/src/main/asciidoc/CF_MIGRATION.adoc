@@ -17,7 +17,6 @@ At the end of this tutorial, it will be possible to instantly create a Concourse
 
 === Sample application - initial state
 
-
 The sample application is implemented using Spring Boot apps for the UI and service tiers, and MySQL for the database.
 
 The apps are built using Maven and pushed manually to Cloud Foundry. They leverage the three Pivotal Spring Cloud Services: Config Server, Service Discovery, and Circuit Breaker Dashboard. Rabbit is used to propagate Config Server refresh triggers.
@@ -49,15 +48,405 @@ We will also be refactoring the application to comply with Spring Cloud Pipeline
 
 The migration steps are broken down into three stages:
 
-. Scaffolding::
+. *Scaffolding*
 - Minimal refactoring to comply with basic Spring Cloud Pipelines requirements.
 - At the end of this stage, each app will have a corresponding pipeline on Concourse. The pipelines will successfully build the apps, store the artifacts in Bintray, and deploy the apps to Test, Stage, and Prod spaces in Cloud Foundry.
-. Tests::
+. *Tests*
 - Add/organize tests to comply with Spring Cloud Pipelines recommendations. Incorporate flyway for database schema versioning and initial data loading.
 - At the end of this stage, the pipelines will trigger unit and integration tests during the Build stage, smoke tests in the Test environment, and end-to-end tests in the Stage environment. The pipelines will also ensure backward compatibility for the database, such that you can safely roll back the backend service app, even after the database schema has been updated.
-. Contracts::
+. *Contracts*
 - Incorporate Spring Cloud Contract to define the API between the UI and service apps and auto-generate tests and stubs.
 - At the end of this stage, the pipelines will catch breaking API changes during the Build stage and ensure backward compatibility for the API, such that you can safely roll back the backend service (producer) app, even after an API change.
 
 === Tutorial - step-by-step
 
+==== Prep: Before you begin
+
+If you want to simply review the migration steps explained below, you can look at the various branches in the https://github.com/ciberkleid/greeting-ui[greeting-ui] and https://github.com/ciberkleid/fortune-service[fortune-service] repositories - there is a branch representing the end-state of each stage:
+
+image::{cf-migration-root-docs}/github_branches.png[title="GitHub Branches"]
+
+If you want to use this tutorial as a hands-on lab, fork each of the following repositories:
+
+- https://github.com/ciberkleid/greeting-ui[greeting-ui]
+- https://github.com/ciberkleid/fortune-service[fortune-service]
+- https://github.com/ciberkleid/app-config[app-config]
+
+Then, create a new directory on your local machine. You may name it anything you like; we will refer to it as `$SCP_HOME` throughout this tutorial.
+
+In `$SCP_HOME`, clone your forks of `greeting-ui` and `fortune-service`, as well as the following two repositories:
+
+- https://github.com/spring-cloud-samples/cloudfoundry-stub-runner-boot[cloudfoundry-stub-runner-boot]
+- https://github.com/spring-cloud/spring-cloud-pipelines[spring-cloud-pipelines]
+
+Finally, create a directory called ``$SCP_HOME`/credentials`. Leave it empty for now.
+
+==== Stage 1: Scaffolding
+
+In this stage, we make minimal changes to satisfy basic Spring Cloud Pipelines requirements so that the apps can run through the entire pipeline without error. We make "scaffolding" changes only - no code changes.
+
+The steps in this stage must be completed for both `greeting-ui` and `fortune-service`.
+
+===== 1.1 Create GitHub branches
+
+```bash
+git branch version
+git checkout -b sc-pipelines
+```
+Branch *version* is required to exist, though it can be created as an empty branch. It is used by Spring Coud Pipelines to generate a version number for each new pipeline execution.
+
+Branch *sc-pipelines* is optional and can be named anything you wish. The intention is for you to use it as a  working branch for the changes suggested in this tutorial (hence we create it and also check it out).
+
+===== 1.2 Add Maven wrapper
+
+```bash
+mvn -N io.takari:maven:wrapper
+```
+This commands adds 4 files to a project:
+
+[source,bash]
+----
+.
+├── mvnw
+├── mvnw.cmd
+└── .mvn
+    └── wrapper
+        ├── maven-wrapper.jar
+        └── maven-wrapper.properties
+----
+
+Make sure all four files are tracked by Git. For example, you can add the following to the `.gitignore` file:
+```
+#Exceptions
+!/mvnw
+!/mvnw.cmd
+!/.mvn/wrapper/maven-wrapper.jar
+!/.mvn/wrapper/maven-wrapper.properties
+```
+
+===== 1.3 Create Bintray maven repo package
+
+We are using Bintray as the maven repository. Bintray requires that a package exist before any app artifacts can be uploaded.
+
+Log into the Bintray UI and create the packages as follows.You can use the `Import from GitHub` option to create these:
+
+image::{cf-migration-root-docs}/bintray_packages.png[title="Bintray Packages"]
+
+===== 1.4 Configure distribution management using Bintray maven repo
+
+Edit the app `pom.xml` files as follows. Make sure the Bintray URLs match the URLs of the corresponding packages created in the previous step. The values you use will be different from the example shown below.
+```xml
+<properties>
+...
+<distribution.management.release.id>bintray</distribution.management.release.id>
+<distribution.management.release.url>https://api.bintray.com/maven/ciberkleid/maven-repo/fortune-service</distribution.management.release.url>
+</properties>
+
+...
+
+<distributionManagement>
+<repository>
+<id>${distribution.management.release.id}</id>
+<url>${distribution.management.release.url}</url>
+</repository>
+</distributionManagement>
+```
+
+Though not required by Spring Cloud Pipelines, it makes sense to also configure your local maven settings with the credentials to your Bintray maven repo. To do so, edit your maven settings file, usually `~/.m2/settings.xml`. If the file does not exist, create it.
+
+Note that the `id` must match the id specified in the previous step. Also, make sure to use your username and API token (not account password) instead of the sample values shown below.
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<settings>
+  <servers>
+    <server>
+      <id>bintray</id>
+      <username>ciberkleid</username>
+      <password>my-super-secret-api-token</password>
+   </server>
+ </servers>
+</settings>
+```
+
+===== 1.5 Push changes to GitHub
+
+Push the above changes to GitHub. You should be pushing the following to each of the two app repos:
+
+* 4 new maven wrapper files
+* a modified .gitignore file
+* a modified pom.xml
+
+===== 1.6 Add Spring Cloud Pipelines credentials file
+In `$SCP_HOME/credentials`, make two copies of the file `$SCP_HOME/spring-cloud-pipelines/concourse/credentials-sample-cf.yml`. Rename them as `credentials-fortune-service.yml` and `credentials-greeting-ui.yml`.
+
+ Note: these files will contain credentials to you GitHub repo, your Bintray repo, and your Cloud Foundry foundation. Hence, we opt to put them in a separate directory. You may choose to store these files in a private git repo, but do not push them to a public repo.
+
+Edit the git properties of each credentials file. Make sure to replace the sample values shown below as appropriate. For `tools-branch`, you may opt to use a fixed release (use v1.0.0.M8 or later for Cloud Foundry). Leave other values as they are, we will update those in later steps.
+```yml
+app-url: git@github.com:ciberkleid/fortune-service.git
+app-branch: sc-pipelines
+tools-scripts-url: https://github.com/spring-cloud/spring-cloud-pipelines.git
+tools-branch: master
+build-options: ""
+
+github-private-key: |
+  -----BEGIN RSA PRIVATE KEY-----
+  MIIJKQIBAAKCAgEAvwkL97vBllOSE39Wa5ppczT1cr5Blmkhadfoa1Va2/IBVyvk
+  NJ9PqoTI+BahF2EgzweyiDSvKsstlTsG7QgiM9So8Voi2PlDOrXL6uOfCuAS/G8X
+  ...
+  -----END RSA PRIVATE KEY-----
+git-email: ciberkleid@pivotal.io
+git-name: Cora Iberkleid
+```
+
+Edit the maven repo properties of each credentials file. Make sure to replace the sample values shown below as appropriate. Bintray requires separate URLs for uploads and downloads. If you are using a different artifact repository, such as Artifactory or Nexus, and the repository URL is the same for uploads and downloads, then you do not need to set `repo-with-binaries-for-upload`.
+```yml
+m2-settings-repo-id: bintray
+m2-settings-repo-username: ciberkleid
+m2-settings-repo-password: my-super-secret-api-token
+
+repo-with-binaries: https://dl.bintray.com/ciberkleid/maven-repo
+
+repo-with-binaries-for-upload: https://api.bintray.com/maven/ciberkleid/maven-repo/fortune-service
+```
+===== 1.7 Set Concourse pipeline
+
+At this point, all of the build jobs, which run on Concourse workers, will succeed.
+
+To verify this, log in to your Concourse target and set the Concourse pipelines. Update the target name in the example below as appropriate.
+
+```bash
+# Set greeting-ui pipeline
+fly -t myTarget set-pipeline -p greeting-ui -c "${SCP_HOME}/spring-cloud-pipelines/concourse/pipeline.yml" -l "${SCP_HOME}/credentials/credentials-greeting-ui.yml" -n
+
+# Set fortune-service pipeline
+fly -t myTarget set-pipeline -p fortune-service -c "${SCP_HOME}/spring-cloud-pipelines/concourse/pipeline.yml" -l "${SCP_HOME}/credentials/credentials-fortune-service.yml" -n
+```
+
+Log into the Concourse UI and unpause the pipelines. Start each. You should see that the build jobs all succeed.
+
+image::{cf-migration-root-docs}/build_success.png[title="Build Success"]
+
+In addition, you will see a new dev/<version_number> tag in each GitHub repo, as well as the app jars uploaded into Bintray.
+
+The test, stage, and prod jobs will fail because we have not yet added scaffolding for deployment to Cloud Foundry. We will do that next.
+
+===== 1.8 Add Cloud Foundry manifest
+
+If you are deploying to Cloud Foundry, you may already be routinely including manifest files with your apps. Our sample apps did not have manifest files, so we add them now.
+
+In the `greeting-ui` repo, create a `manifest.yml` file as follows:
+```yml
+---
+applications:
+- name: greeting-ui
+  timeout: 120
+  services:
+  - config-server
+  - cloud-bus
+  - service-registry
+  - circuit-breaker-dashboard
+  env:
+    JAVA_OPTS: -Djava.security.egd=file:///dev/urandom
+    TRUST_CERTS: api.run.pivotal.io
+```
+
+In the `fortune-service` repo, create a `manifest.yml` file as follows:
+```yml
+---
+applications:
+- name: fortune-service
+  timeout: 120
+  services:
+  - fortune-db
+  - config-server
+  - cloud-bus
+  - service-registry
+  - circuit-breaker-dashboard
+  env:
+    JAVA_OPTS: -Djava.security.egd=file:///dev/urandom
+    TRUST_CERTS: api.run.pivotal.io
+```
+
+The `TRUST_CERTS` variable is used by the Pivotal Spring Cloud Services (Config Server, Service Registry, and Circuit Breaker Dashboard), which we are using in this example. The value specified above assumes deployment to Pivotal Web Services. Update it accordingly if you are deploying to a different Cloud Foundry foundation, or you can leave it out altogether if you are replacing the Pivotal Spring Cloud Services with alternative implementations (e.g. deploying apps and exposing them as user-provided services).
+
+You may add additional values to the manifest files if you wish, for example if additional values are useful for any manual deployment you may still want to do, or desirable in your Spring Cloud Pipelines deployment. For example, an alternative manifest.yml for 'fortune-ui` could be as follows:
+
+```yml
+---
+applications:
+- name: fortune-service
+  memory: 1024M
+  instances: 3
+  path: ./target/fortune-service-0.0.1-SNAPSHOT.jar
+  random-route: true
+  timeout: 120
+  services:
+  - fortune-db
+  - config-server
+  - cloud-bus
+  - service-registry
+  - circuit-breaker-dashboard
+  env:
+    SPRING_PROFILES_ACTIVE: someProfile
+    JAVA_OPTS: -Djava.security.egd=file:///dev/urandom
+    TRUST_CERTS: api.run.pivotal.io
+```
+
+Note that `random-route` and `path` are ignored by Spring Cloud Pipelines. `instances` is honored in stage and prod, but overridden with a value of 1 for test.
+
+===== 1.9 Add Spring Cloud Pipelines manifest
+
+The Cloud Foundry manifest created in the previous step includes the logical names of the services to which the apps should be bound, but it does describe how the services can be provisioned. Hence, we add a second manifest file so that Spring Cloud Pipelines can provision the services.
+
+Add a file called `sc-pipelines.yml` to each app, and include the same list of services as in the corresponding `manifest.yml`. Add the necessary details such that Spring Cloud Pipelines can construct a `cf create-service` command.
+
+ Note: The `type: broker' parameter shown below instructs Spring Cloud Pipelines to provision a service using `cf create-service'. Other service types are also supported: cups, syslog, route, app, and stubrunner.
+
+More specifically, for `greeting-ui`, create an `sc-pipelines.yml` file with the following content:
+
+```yml
+test:
+  services:
+    - name: config-server
+      type: broker
+      broker: p-config-server
+      plan: standard
+      params:
+        git:
+          uri: https://github.com/ciberkleid/app-config
+      useExisting: true
+    - name: cloud-bus
+      type: broker
+      broker: cloudamqp
+      plan: lemur
+      useExisting: true
+    - name: service-registry
+      type: broker
+      broker: p-service-registry
+      plan: standard
+      useExisting: true
+    - name: circuit-breaker-dashboard
+      type: broker
+      broker: p-circuit-breaker-dashboard
+      plan: standard
+      useExisting: true
+```
+
+The `sc-pipelines.yml` file for `fortune-service` is similar, with the addition of the `fortune-db` service:
+```yml
+test:
+  # list of required services
+  services:
+    - name: fortune-db
+      type: broker
+      broker: cleardb
+      plan: spark
+      useExisting: true
+    - name: config-server
+      type: broker
+      broker: p-config-server
+      plan: standard
+      params:
+        git:
+          uri: https://github.com/ciberkleid/app-config
+      useExisting: true
+    - name: cloud-bus
+      type: broker
+      broker: cloudamqp
+      plan: lemur
+      useExisting: true
+    - name: service-registry
+      type: broker
+      broker: p-service-registry
+      plan: standard
+      useExisting: true
+    - name: circuit-breaker-dashboard
+      type: broker
+      broker: p-circuit-breaker-dashboard
+      plan: standard
+      useExisting: true
+```
+
+The values above assume deployment to Pivotal Web Services. If you are deploying to a different Cloud Foundry foundation, please update the values accordingly. Also, make sure to replace the `config-server` uri with the address of your fork of the https://github.com/ciberkleid/app-config[app-config] repo.
+
+ Note the `useExisting: true` parameter above. By default, Spring Cloud Pipelines will delete and recreate services in the `test` space. To override this behavior and re-use existing services, we set `useExisting: true`.
+
+===== 1.10 Push changes to GitHub
+
+Push the above changes to GitHub. You should be pushing the following to each of the two app repos:
+
+* new app manifest file
+* new sc-pipelines manifest file
+
+===== 1.11 Create Cloud Foundry Orgs/Spaces
+
+Spring Cloud Pipelines requires that the Cloud Foundry test, stage, and prod spaces exist before a pipeline is run. If you wish, you can use different foundations, orgs, and users for each. For simplicity, in this example, we use a single foundation (PWS), a single org, and a single user.
+
+
+You can name the org(s) and spaces anything you like. Each app requires its own test space. The stage and prod spaces are shared.
+
+For this example, create the following spaces:
+```bash
+cf create-space scp-test-greeting-ui
+cf create-space scp-test-fortune-service
+cf create-space scp-stage
+cf create-space scp-prod
+```
+
+===== 1.12 Create Cloud Foundry stage and prod service instances
+
+Spring Cloud Pipelines will dynamically create the services in the test spaces as per the `sc-pipelines.yml` file we created previously. Optionally, a second section can be added to the `sc-pipelines.yml` file for the stage environment, and these will be created dynamically as well. Prod services, however, must always be created manually.
+
+For this example, we will create the stage and services manually.
+
+Create the services listed in the app manifest files in both `scp-stage` and `scp-prod`.
+
+===== 1.13 Update Spring Cloud Pipelines credentials file
+Update the `greeting-ui` and `fortune-service` credentials files with Cloud Foundry information. Replace values in the example below as appropriate for your Cloud Foundry environment.
+
+Notice that the space name specified is a prefix. Spring Cloud Pipelines will append the app name, matching the test space names created previously. The stage and prod space names are not prefixes and will not be altered by Spring Cloud Pipelines.
+
+Note also the `paas-hostname-uuid`. The value will be included in each route created. This value is optional, but it is useful in shared/multi-tenant environments such as PWS, as it helps ensure routes are unique. Change it to a unique uuid of your choosing.
+
+```yml
+pipeline-descriptor: sc-pipelines.yml
+
+paas-type: cf
+
+paas-hostname-uuid: cyi
+
+# test values
+paas-test-api-url: https://api.run.pivotal.io
+paas-test-username: ciberkleid@pivotal.io
+paas-test-password: secret
+paas-test-org: S1Pdemo12
+paas-test-space-prefix: scp-test
+
+# stage values
+paas-stage-api-url: https://api.run.pivotal.io
+paas-stage-username: ciberkleid@pivotal.io
+paas-stage-password: my-super-secret-password
+paas-stage-org: S1Pdemo12
+paas-stage-space: scp-stage
+
+# prod values
+paas-prod-api-url: https://api.run.pivotal.io
+paas-prod-username: ciberkleid@pivotal.io
+paas-prod-password: my-super-secret-password
+paas-prod-org: S1Pdemo12
+paas-prod-space: scp-prod
+```
+
+===== 1.14 Update Concourse pipeline with updated credentials files
+
+Set the Concourse pipelines again, as we did previously, with the newly updates values in the credentials files. The test, stage, and prod jobs will all now succeed.
+
+BLAH BLAH - talk about artifactory upload etc
+
+
+==== Stage 2: Tests
+
+In this stage, we add tests and test profiles...
+
+==== Stage 3: Contracts
